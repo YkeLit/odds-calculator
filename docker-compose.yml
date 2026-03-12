@@ -1,0 +1,25 @@
+services:
+  backend:
+    image: registry.cn-chengdu.aliyuncs.com/yk-tools/odds-calculator-backend:latest
+    container_name: odds-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DB_PATH=/app/data/odds.db
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    image: registry.cn-chengdu.aliyuncs.com/yk-tools/odds-calculator-frontend:latest
+    container_name: odds-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-data:
