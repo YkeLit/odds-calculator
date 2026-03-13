@@ -134,6 +134,7 @@ export interface DecisionAction {
   ciLow: number
   ciHigh: number
   frequency: number
+  regret: number
 }
 
 export interface HeroMetrics {

@@ -125,9 +125,9 @@ type TableState struct {
 }
 
 type PotState struct {
-	PotSize    float64   `json:"potSize"`
-	ToCall     float64   `json:"toCall"`
-	MinRaiseTo float64   `json:"minRaiseTo"`
+	PotSize    float64    `json:"potSize"`
+	ToCall     float64    `json:"toCall"`
+	MinRaiseTo float64    `json:"minRaiseTo"`
 	Blinds     [2]float64 `json:"blinds"` // [SB, BB]
 }
 
@@ -139,9 +139,9 @@ type ActionNode struct {
 }
 
 type OpponentInfo struct {
-	ID            string `json:"id"`            // Usually matches position, e.g. "UTG"
+	ID            string `json:"id"` // Usually matches position, e.g. "UTG"
 	Position      string `json:"position"`
-	StylePreset   string `json:"stylePreset"`   // "tight", "loose", "balanced", etc.
+	StylePreset   string `json:"stylePreset"`             // "tight", "loose", "balanced", etc.
 	RangeOverride string `json:"rangeOverride,omitempty"` // e.g. "AA,AKs:0.5"
 }
 
@@ -164,12 +164,13 @@ type HoldemDecisionRequest struct {
 }
 
 type DecisionAction struct {
-	Action      ActionType `json:"action"`
-	Amount      float64    `json:"amount,omitempty"`
-	EV          float64    `json:"ev"`
-	CILow       float64    `json:"ciLow"`
-	CIHigh      float64    `json:"ciHigh"`
-	Frequency   float64    `json:"frequency"` // Option for mixed strats, later use
+	Action    ActionType `json:"action"`
+	Amount    float64    `json:"amount,omitempty"`
+	EV        float64    `json:"ev"`
+	CILow     float64    `json:"ciLow"`
+	CIHigh    float64    `json:"ciHigh"`
+	Frequency float64    `json:"frequency"` // MCCFR average strategy
+	Regret    float64    `json:"regret"`    // Cumulative regret at root infoset
 }
 
 type HeroMetrics struct {

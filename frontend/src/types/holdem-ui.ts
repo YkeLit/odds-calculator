@@ -18,6 +18,7 @@ export interface OpponentDraft {
   position: string
   stylePreset: 'tight' | 'loose' | 'balanced' | 'maniac'
   rangeOverride: string 
+  stack?: number
 }
 
 // UI Representation of an action flow
@@ -54,7 +55,11 @@ export interface DecisionViewModel {
     amountInfo: string
     evText: string
     ciText: string
+    freqText: string
+    regretText: string
     isPrimary: boolean
+    rawAction: string
+    rawAmount: number
   }>
   heroStats: {
     equity: string

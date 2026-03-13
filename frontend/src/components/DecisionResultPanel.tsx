@@ -4,9 +4,10 @@ interface DecisionResultPanelProps {
   viewModel: DecisionViewModel | null
   status: 'idle' | 'loading' | 'success' | 'error'
   error?: string
+  onApplyAction?: (action: string, amount: number) => void
 }
 
-export function DecisionResultPanel({ viewModel, status, error }: DecisionResultPanelProps) {
+export function DecisionResultPanel({ viewModel, status, error, onApplyAction }: DecisionResultPanelProps) {
   if (status === 'error') {
     return (
       <div className="holdem-result-panel">
@@ -63,14 +64,26 @@ export function DecisionResultPanel({ viewModel, status, error }: DecisionResult
           {viewModel.topActions.length === 0 && <p className="hint">暂无可用动作</p>}
           <div className="action-cards">
             {viewModel.topActions.map((act, i) => (
-              <div key={i} className={`action-card ${act.isPrimary ? 'primary-action' : ''}`}>
+              <div 
+                key={i} 
+                className={`action-card ${act.isPrimary ? 'primary-action' : ''} ${onApplyAction ? 'clickable' : ''}`}
+                onClick={() => onApplyAction?.(act.rawAction, act.rawAmount)}
+                style={onApplyAction ? { cursor: 'pointer' } : undefined}
+                title="点击即可将此动作应用到历史记录"
+              >
                 <h4>{act.action === 'FOLD' ? '弃牌 (Fold)' : act.action === 'CALL' ? '跟注 (Call)' : act.action === 'CHECK' ? '过牌 (Check)' : act.action === 'RAISE' ? '加注 (Raise)' : act.action === 'ALLIN' ? '全下 (All-In)' : act.action}</h4>
                 <div className="action-amt">{act.amountInfo}</div>
+                <div className="action-freq">
+                  <span>策略频率:</span> <strong>{act.freqText}</strong>
+                </div>
                 <div className="action-ev">
-                  <span>EV:</span> <strong>{act.evText}</strong>
+                  <span>节点 EV:</span> <strong>{act.evText}</strong>
                 </div>
                 <div className="action-ci">
                   <span>95% CI:</span> {act.ciText}
+                </div>
+                <div className="action-regret">
+                  <span>累积后悔值:</span> {act.regretText}
                 </div>
               </div>
             ))}
