@@ -5,3 +5,5 @@ frontend/dist
 frontend/tsconfig.tsbuildinfo
 /tmp/
 .playwright-mcp/
+mccfr_cache.bin
+odds.db

@@ -54,6 +54,10 @@ export function HoldemPage({ token }: { token?: string }) {
     status: 'idle'
   })
   const [picker, setPicker] = useState<PickerState>({ open: false, target: null, suit: '' })
+  const [heroQuickInput, setHeroQuickInput] = useState('')
+  const [boardQuickInput, setBoardQuickInput] = useState('')
+  const [heroQuickFocused, setHeroQuickFocused] = useState(false)
+  const [boardQuickFocused, setBoardQuickFocused] = useState(false)
 
   const usedCards = useMemo(() => {
     const set = new Set<string>()
@@ -105,6 +109,18 @@ export function HoldemPage({ token }: { token?: string }) {
   [userCards, boardCards, deadCards, opponents, toCall, street])
 
   const viewModel = useMemo(() => buildDecisionViewModel({response: result}), [result])
+
+  useEffect(() => {
+    if (!heroQuickFocused) {
+      setHeroQuickInput(userCards.filter(Boolean).join(' '))
+    }
+  }, [userCards, heroQuickFocused])
+
+  useEffect(() => {
+    if (!boardQuickFocused) {
+      setBoardQuickInput(boardCards.filter(Boolean).join(' '))
+    }
+  }, [boardCards, boardQuickFocused])
 
   const activePositions = useMemo(() => {
     const list = [{ value: userPosition, label: `用户 (${userPosition})` }]
@@ -206,6 +222,27 @@ export function HoldemPage({ token }: { token?: string }) {
     }
   }
 
+  const parseQuickCards = (value: string, maxCards: number) => {
+    const tokens = value
+      .split(/[\s,，/]+/)
+      .map(token => normalizeCard(token))
+      .filter(Boolean)
+      .slice(0, maxCards)
+
+    return Array.from({ length: maxCards }, (_, idx) => tokens[idx] ?? '')
+  }
+
+  const handleHeroQuickInputChange = (value: string) => {
+    setHeroQuickInput(value)
+    const cards = parseQuickCards(value, 2)
+    setUserCards([cards[0], cards[1]])
+  }
+
+  const handleBoardQuickInputChange = (value: string) => {
+    setBoardQuickInput(value)
+    setBoardCards(parseQuickCards(value, 5))
+  }
+
   const onPickRank = (rank: string) => {
     if (!picker.open || !picker.target || !picker.suit) return
     const card = `${rank}${picker.suit}`
@@ -215,8 +252,7 @@ export function HoldemPage({ token }: { token?: string }) {
   }
 
   // Quick Action Helpers
-  const handleUserPositionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newPos = e.target.value
+  const handleUserPositionChange = (newPos: string) => {
     // 如果这个位置已经被某个对手占用，互换他们的位置
     const conflictIdx = opponents.findIndex(o => o.position === newPos)
     if (conflictIdx !== -1) {
@@ -225,8 +261,7 @@ export function HoldemPage({ token }: { token?: string }) {
     setUserPosition(newPos)
   }
 
-  const handleOpponentPositionChange = (idx: number, e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newPos = e.target.value
+  const handleOpponentPositionChange = (idx: number, newPos: string) => {
     const oldPos = opponents[idx].position
 
     // 如果和 user 冲突，交换
@@ -249,6 +284,21 @@ export function HoldemPage({ token }: { token?: string }) {
 
     // 正常更新
     setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, position: newPos, id: newPos } : o))
+  }
+
+  const STYLE_PRESET_LABELS: Record<OpponentDraft['stylePreset'], string> = {
+    tight: '紧',
+    balanced: '平',
+    loose: '松',
+    maniac: '疯'
+  }
+
+  const setOpponentStyle = (idx: number, stylePreset: OpponentDraft['stylePreset']) => {
+    setOpponents(prev => prev.map((opp, i) => i === idx ? { ...opp, stylePreset } : opp))
+  }
+
+  const setAllOpponentStacksToHero = () => {
+    setOpponents(prev => prev.map(opp => ({ ...opp, stack: userStack })))
   }
 
   const addOpponent = () => {
@@ -340,6 +390,18 @@ export function HoldemPage({ token }: { token?: string }) {
     }, 3000)
   }
 
+  const resetCurrentHand = () => {
+    setUserCards(['', ''])
+    setBoardCards(['', '', '', '', ''])
+    setDeadCards([])
+    setHistory([])
+    setStreet('preflop')
+    setResult(null)
+    setCalcState({ status: 'idle' })
+    setStreetMessage('已清空本手，桌面配置已保留')
+    setTimeout(() => setStreetMessage(''), 1800)
+  }
+
 
   // 按回合过滤动作历史
   const filteredHistory = useMemo(() => {
@@ -378,24 +440,37 @@ export function HoldemPage({ token }: { token?: string }) {
       <div className="holdem-layout">
         <section className="holdem-input-panel">
           <div className="sticky-action-bar">
+            <div className="sticky-action-actions">
              <button type="button" className="calculate-btn ripple" onClick={runDecision} disabled={calcState.status === 'loading' || !validation.canRequest}>
                 {calcState.status === 'loading' ? '计算引擎运行中...' : '立即提交计算 =>'}
               </button>
+              <button type="button" className="ghost-btn quick-reset-btn" onClick={resetCurrentHand}>新一手</button>
+            </div>
               {validation.errors.length > 0 && <p className="error-mini">{validation.errors[0]}</p>}
+              <p className="hint-secondary compact">录牌建议直接输入：手牌填 As Ks，公共牌填 Qs Jh 2d Td 9c</p>
+              <p className="suit-hint">花色字母：s=黑桃，h=红桃，d=方片，c=梅花</p>
           </div>
           
           <div className="input-grid">
             <div className="input-block">
             <h3>用户视角</h3>
+            <div className="hero-position-field">
+              <span className="hero-position-label">位置</span>
+              <div className="position-btn-group hero-position-group">
+                {dynamicPositions.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={`position-btn hero-position-btn ${userPosition === opt.value ? 'active' : ''}`}
+                    onClick={() => handleUserPositionChange(opt.value)}
+                    title={opt.label}
+                  >
+                    <span className="hero-position-code">{opt.value}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="hero-setup-grid">
-              <label>
-                位置
-                <select value={userPosition} onChange={handleUserPositionChange}>
-                  {dynamicPositions.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
               <label>
                 初始筹码
                 <input type="number" value={userStack} onChange={e => setUserStack(Number(e.target.value))} />
@@ -419,6 +494,23 @@ export function HoldemPage({ token }: { token?: string }) {
                   </button>
                 )
               })}
+            </div>
+            <div className="quick-entry-row">
+              <label>
+                快速录入手牌
+                <input
+                  type="text"
+                  value={heroQuickInput}
+                  onFocus={() => setHeroQuickFocused(true)}
+                  onBlur={() => {
+                    setHeroQuickFocused(false)
+                    setHeroQuickInput(userCards.filter(Boolean).join(' '))
+                  }}
+                  onChange={e => handleHeroQuickInputChange(e.target.value)}
+                  placeholder="例如: As Ks"
+                />
+              </label>
+              <p className="suit-hint">花色字母：s=黑桃，h=红桃，d=方片，c=梅花</p>
             </div>
             {userCards[0] === '' || userCards[1] === '' ? <p className="error">必须输入用户的两张手牌</p> : null}
           </div>
@@ -483,6 +575,23 @@ export function HoldemPage({ token }: { token?: string }) {
                     )
                   })}
                 </div>
+                <div className="quick-entry-row quick-entry-row-board">
+                  <label>
+                    快速录入公共牌
+                    <input
+                      type="text"
+                      value={boardQuickInput}
+                      onFocus={() => setBoardQuickFocused(true)}
+                      onBlur={() => {
+                        setBoardQuickFocused(false)
+                        setBoardQuickInput(boardCards.filter(Boolean).join(' '))
+                      }}
+                      onChange={e => handleBoardQuickInputChange(e.target.value)}
+                      placeholder={street === 'flop' ? '例如: Qs Jh 2d' : street === 'turn' ? '例如: Qs Jh 2d Td' : '例如: Qs Jh 2d Td 9c'}
+                    />
+                  </label>
+                  <p className="suit-hint">花色字母：s=黑桃，h=红桃，d=方片，c=梅花</p>
+                </div>
             </div>
           )}
 
@@ -492,26 +601,38 @@ export function HoldemPage({ token }: { token?: string }) {
             </summary>
             
             <div style={{ marginTop: '12px' }}>
-              <div className="holdem-input-top" style={{ justifyContent: 'flex-end', marginBottom: '8px' }}>
+              <div className="holdem-input-top opponent-toolbar" style={{ justifyContent: 'flex-end', marginBottom: '8px' }}>
+                <button className="ghost-btn" onClick={setAllOpponentStacksToHero}>全部同筹码</button>
                 <button className="ghost-btn" onClick={addOpponent}>+ 添加对手</button>
               </div>
               {opponents.map((opp, idx) => (
                 <div key={idx} className="opponent-row">
-                  <select value={opp.position} onChange={e => handleOpponentPositionChange(idx, e)} className="flex-1">
+                  <div className="position-btn-group opponent-position-group">
                     {dynamicPositions.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      <button
+                        key={opt.value}
+                        type="button"
+                        className={`position-btn ${opp.position === opt.value ? 'active' : ''}`}
+                        onClick={() => handleOpponentPositionChange(idx, opt.value)}
+                        title={opt.label}
+                      >
+                        {opt.value}
+                      </button>
                     ))}
-                  </select>
+                  </div>
 
-                  <select value={opp.stylePreset} onChange={e => {
-                      const val = e.target.value as any
-                      setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, stylePreset: val } : o))
-                  }} className="flex-1">
-                    <option value="tight">紧</option>
-                    <option value="balanced">平</option>
-                    <option value="loose">松</option>
-                    <option value="maniac">疯</option>
-                  </select>
+                  <div className="opponent-style-group">
+                    {(Object.keys(STYLE_PRESET_LABELS) as Array<OpponentDraft['stylePreset']>).map(style => (
+                      <button
+                        key={style}
+                        type="button"
+                        className={`opponent-style-btn ${opp.stylePreset === style ? 'active' : ''}`}
+                        onClick={() => setOpponentStyle(idx, style)}
+                      >
+                        {STYLE_PRESET_LABELS[style]}
+                      </button>
+                    ))}
+                  </div>
                   
                   <input type="number" 
                     value={opp.stack || 0} 
@@ -520,21 +641,17 @@ export function HoldemPage({ token }: { token?: string }) {
                       setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, stack: val } : o))
                     }} 
                     placeholder="筹码"
-                    className="flex-1"
+                    className="opponent-stack-input"
                     title="初始筹码"
                   />
-                  <input
-                    type="number"
-                    value={Math.max(0, (opp.stack || 0) - (invested[opp.position] ?? 0))}
-                    readOnly
-                    className="readonly-input flex-1"
-                    title="剩余筹码（自动计算）"
-                  />
+                  <span className="opponent-remaining-chip" title="剩余筹码（自动计算）">
+                    余 {Math.max(0, (opp.stack || 0) - (invested[opp.position] ?? 0))}
+                  </span>
 
                   <input value={opp.rangeOverride} onChange={e => {
                     const val = e.target.value
                     setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, rangeOverride: val } : o))
-                  }} placeholder="范围" style={{ flex: 1.5, minWidth: '80px' }} />
+                  }} placeholder="范围，例如 22+,AJs+,KQo" className="opponent-range-input" />
                   
                   <button className="ghost-btn action-del-btn" onClick={() => removeOpponent(idx)}>×</button>
                 </div>
@@ -554,6 +671,7 @@ export function HoldemPage({ token }: { token?: string }) {
               const validActions = getValidActions(blinds, priorHistory, act.actor, opponents)
 
               const currentAction = validActions.includes(act.action) ? act.action : getPreferredAction(validActions)
+              const actorLabel = activePositions.find(pos => pos.value === act.actor)?.label ?? act.actor
 
               const ACTION_SHORT: Record<string, string> = {
                 fold: '弃牌', check: '过牌', call: '跟注', bet: '下注', raise: '加注', allin: '全下',
@@ -577,26 +695,7 @@ export function HoldemPage({ token }: { token?: string }) {
 
               return (
               <div key={act.id} className="action-row">
-                <select value={act.actor} onChange={e => {
-                  const val = e.target.value
-                  setHistory(prev => prev.map((h, i) => {
-                    if (i === act.originalIdx) {
-                      let newAmount = h.amount
-                      if (h.action === 'allin') {
-                        const actorStack = val === userPosition
-                          ? userStack
-                          : (opponents.find(o => o.position === val)?.stack || 0)
-                        newAmount = actorStack.toString()
-                      }
-                      return { ...h, actor: val, amount: newAmount }
-                    }
-                    return h
-                  }))
-                }} className="actor-select">
-                  {activePositions.map(pos => (
-                     <option key={pos.value} value={pos.value}>{pos.label}</option>
-                  ))}
-                </select>
+                <span className="actor-chip" title={actorLabel}>{actorLabel}</span>
 
                 <div className="action-btn-group">
                   {validActions.map(a => (

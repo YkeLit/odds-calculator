@@ -266,12 +266,25 @@ pre {
   gap: 10px;
 }
 
+.sticky-action-actions {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
 .calculate-btn {
   font-weight: 700;
   font-size: 16px;
   padding: 14px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  flex: 1 1 auto;
+}
+
+.quick-reset-btn {
+  flex: 0 0 auto;
+  min-width: 92px;
+  font-weight: 600;
 }
 
 .error-mini {
@@ -287,6 +300,11 @@ pre {
   text-align: center;
   margin-top: 12px;
   font-style: italic;
+}
+
+.hint-secondary.compact {
+	text-align: left;
+	margin-top: 0;
 }
 
 .holdem-input-top h3,
@@ -320,6 +338,31 @@ pre {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.quick-entry-row {
+  margin-top: 10px;
+}
+
+.quick-entry-row label {
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.quick-entry-row input {
+  background: #f8fbff;
+  border-style: dashed;
+}
+
+.quick-entry-row-board {
+  margin-top: 14px;
+}
+
+.suit-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .card-slot {
@@ -383,6 +426,108 @@ pre {
 
 .opponent-row:last-child, .action-row:last-child {
   margin-bottom: 0;
+}
+
+.opponent-toolbar {
+  gap: 8px;
+}
+
+.position-btn-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hero-position-group {
+  flex-wrap: nowrap;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.position-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+}
+
+.hero-position-btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.hero-position-code {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.position-btn.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 4px 10px rgba(18, 90, 156, 0.16);
+}
+
+.opponent-position-group {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+
+.opponent-style-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.opponent-style-btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.opponent-style-btn.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  font-weight: 600;
+}
+
+.opponent-stack-input {
+  flex: 0 0 84px;
+}
+
+.opponent-remaining-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 68px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #e8f0fb;
+  color: var(--brand);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.opponent-range-input {
+  flex: 1 1 180px;
+  min-width: 120px;
 }
 
 .dead-card-row {
@@ -667,9 +812,21 @@ pre {
 
 .hero-setup-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.hero-position-field {
+  margin-bottom: 14px;
+}
+
+.hero-position-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .board-setup-grid {
@@ -706,6 +863,10 @@ pre {
 }
 
 @media (max-width: 760px) {
+  .sticky-action-actions {
+    flex-direction: column;
+  }
+
   .card-picker-popover {
     position: fixed !important;
     top: auto !important;
@@ -885,9 +1046,19 @@ pre {
   line-height: 1;
 }
 
-.actor-select {
+.actor-chip {
   flex: 0 0 110px;
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 /* 动作按钮组 */
