@@ -307,6 +307,18 @@ func buildSolverState(req models.HoldemDecisionRequest) (solverState, error) {
 	if err != nil {
 		return solverState{}, err
 	}
+	requiredBoardCount := 0
+	switch req.Street {
+	case models.StreetFlop:
+		requiredBoardCount = 3
+	case models.StreetTurn:
+		requiredBoardCount = 4
+	case models.StreetRiver:
+		requiredBoardCount = 5
+	}
+	if len(board) < requiredBoardCount {
+		return solverState{}, fmt.Errorf("street %s requires at least %d board cards, got %d", req.Street, requiredBoardCount, len(board))
+	}
 	dead, err := parseCards(req.DeadCards)
 	if err != nil {
 		return solverState{}, err

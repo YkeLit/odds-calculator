@@ -77,14 +77,46 @@ export function checkIsStreetClosed(
   activePositions: Array<{ value: string; label: string }>,
   currentStreet?: Street
 ): boolean {
-  if (history.length === 0) return false
+  return getStreetAdvanceStatus(blinds, history, activePositions, currentStreet ?? (history.length > 0 ? history[history.length - 1].street : 'preflop')).canAdvance
+}
 
-  const targetStreet = currentStreet ?? history[history.length - 1].street
-  const streetActions = history.filter(h => h.street === targetStreet)
-  // 刚切换街道还没有任何动作，不能认为已关闭
-  if (streetActions.length === 0) return false
+export type StreetAdvanceStatus = {
+  /** 是否可以进入下一阶段 */
+  canAdvance: boolean
+  /** 当前状态描述，用于展示给用户 */
+  reason: string
+  /** 所有人弃牌，只剩一位玩家（牌局直接结束，不需要发后续牌） */
+  gameOver: boolean
+  /** gameOver 时的获胜者 */
+  winner?: string
+  /** 所有存活玩家都已 all-in，剩余公共牌需要连续发出 */
+  allAllIn: boolean
+  /** 下一个阶段 */
+  nextStreet?: Street
+}
 
-  // 收集全局弃牌和 all-in 信息（跨街）
+export function getStreetAdvanceStatus(
+  blinds: [number, number],
+  history: ActionDraft[],
+  activePositions: Array<{ value: string; label: string }>,
+  currentStreet: Street
+): StreetAdvanceStatus {
+  const nextStreetMap: Record<string, Street | undefined> = {
+    preflop: 'flop', flop: 'turn', turn: 'river', river: undefined
+  }
+  const nextStreet = nextStreetMap[currentStreet]
+
+  // 无动作历史 → 不能推进
+  if (history.length === 0) {
+    return { canAdvance: false, reason: '尚无动作记录', gameOver: false, allAllIn: false, nextStreet }
+  }
+
+  const streetActions = history.filter(h => h.street === currentStreet)
+  if (streetActions.length === 0) {
+    return { canAdvance: false, reason: '本阶段尚无动作记录', gameOver: false, allAllIn: false, nextStreet }
+  }
+
+  // ── 收集全局弃牌和 all-in ──
   const folded = new Set<string>()
   const allIn = new Set<string>()
   for (const act of history) {
@@ -92,21 +124,31 @@ export function checkIsStreetClosed(
     if (act.action === 'allin') allIn.add(act.actor)
   }
 
-  // 还在场上（未弃牌）的玩家
   const activePlayers = activePositions.filter(p => !folded.has(p.value))
 
-  // 只剩 0 或 1 人 → 牌局直接结束
-  if (activePlayers.length <= 1) return true
+  // ── 特殊情况 1：全场弃牌，只剩一人 ──
+  if (activePlayers.length <= 1) {
+    const winner = activePlayers[0]?.value
+    return {
+      canAdvance: true,
+      reason: `所有对手已弃牌，${winner ?? '?'} 赢得底池`,
+      gameOver: true,
+      winner,
+      allAllIn: false,
+      nextStreet
+    }
+  }
 
-  // ── 计算本街投入 ──
+  // ── 计算本街投入 & 待表态集合 ──
   const invested: Record<string, number> = {}
   let currentBet = 0
 
-  if (targetStreet === 'preflop') {
-    activePositions.forEach(p => {
+  if (currentStreet === 'preflop') {
+    for (const p of activePositions) {
       if (p.value === 'SB') invested[p.value] = blinds[0]
-      if (p.value === 'BB') invested[p.value] = blinds[1]
-    })
+      else if (p.value === 'BB') invested[p.value] = blinds[1]
+      else invested[p.value] = 0
+    }
     currentBet = blinds[1]
   } else {
     for (const p of activePositions) {
@@ -114,8 +156,7 @@ export function checkIsStreetClosed(
     }
   }
 
-  // ── 用 "待表态集合" 追踪动作闭环 ──
-  // 初始：所有存活且未 all-in 的玩家都需要表态
+  // 初始待表态：所有存活且未 all-in 的玩家
   const needsToAct = new Set<string>()
   for (const p of activePlayers) {
     if (!allIn.has(p.value)) {
@@ -127,7 +168,6 @@ export function checkIsStreetClosed(
     const actor = act.actor
     const amt = Number(act.amount) || 0
 
-    // 该玩家已表态，从待表态集合中移除
     needsToAct.delete(actor)
 
     switch (act.action) {
@@ -135,10 +175,8 @@ export function checkIsStreetClosed(
         invested[actor] = currentBet
         break
       case 'check':
-        // 无金额变动
         break
       case 'fold':
-        // 已在全局 folded 中处理
         break
       case 'bet':
       case 'raise': {
@@ -146,7 +184,6 @@ export function checkIsStreetClosed(
         invested[actor] = totalBet
         if (totalBet > currentBet) {
           currentBet = totalBet
-          // 加注重新打开动作：所有存活、非 all-in、非加注者需重新表态
           for (const p of activePlayers) {
             if (p.value !== actor && !folded.has(p.value) && !allIn.has(p.value)) {
               needsToAct.add(p.value)
@@ -172,17 +209,57 @@ export function checkIsStreetClosed(
     }
   }
 
-  // ── 判断是否关闭 ──
+  // ── 判断条件 ──
 
-  // 1. 还有人需要表态 → 未关闭
-  if (needsToAct.size > 0) return false
+  // 1. 还有人需要表态
+  if (needsToAct.size > 0) {
+    const waitingList = Array.from(needsToAct).join(', ')
+    return {
+      canAdvance: false,
+      reason: `等待 ${waitingList} 表态`,
+      gameOver: false,
+      allAllIn: false,
+      nextStreet
+    }
+  }
 
-  // 2. 注码平齐：所有非弃牌、非 all-in 玩家投入 ≥ currentBet
+  // 2. 注码平齐检查
   const nonAllInActive = activePlayers.filter(p => !allIn.has(p.value))
   const uncalled = nonAllInActive.filter(p => (invested[p.value] ?? 0) < currentBet)
-  if (uncalled.length > 0) return false
+  if (uncalled.length > 0) {
+    const uncalledList = uncalled.map(p => p.value).join(', ')
+    return {
+      canAdvance: false,
+      reason: `${uncalledList} 还未补齐注码至 ${currentBet}`,
+      gameOver: false,
+      allAllIn: false,
+      nextStreet
+    }
+  }
 
-  return true
+  // ── 本阶段已关闭，检查是否全员 All-in ──
+  const allAllIn = nonAllInActive.length <= 1
+    && activePlayers.filter(p => allIn.has(p.value)).length >= activePlayers.length - 1
+
+  if (currentStreet === 'river') {
+    return {
+      canAdvance: true,
+      reason: '河牌圈已结束，进入摊牌',
+      gameOver: true,
+      allAllIn,
+      nextStreet: undefined
+    }
+  }
+
+  return {
+    canAdvance: true,
+    reason: allAllIn
+      ? '全员 All-in，剩余公共牌将连续发出'
+      : `本轮下注已结束，可进入${nextStreet === 'flop' ? '翻牌' : nextStreet === 'turn' ? '转牌' : '河牌'}阶段`,
+    gameOver: false,
+    allAllIn,
+    nextStreet
+  }
 }
 
 
@@ -370,10 +447,12 @@ export function validateHoldemDecision(
   boardCards: string[],
   deadCards: string[],
   opponents: OpponentDraft[],
-  potToCall: number
+  potToCall: number,
+  street: Street
 ): HoldemValidation {
   const errors: string[] = []
   const cardOwner = new Map<string, string>()
+  const boardCount = boardCards.map(c => c.trim()).filter(Boolean).length
 
   if (userCards.length !== 2) {
     errors.push('用户需要两张手牌')
@@ -401,6 +480,16 @@ export function validateHoldemDecision(
       cardOwner.set(norm, 'Board')
     }
   })
+
+  if (street === 'flop' && boardCount < 3) {
+    errors.push('翻牌阶段需要先选择 3 张公共牌')
+  }
+  if (street === 'turn' && boardCount < 4) {
+    errors.push('转牌阶段需要先选择 4 张公共牌')
+  }
+  if (street === 'river' && boardCount < 5) {
+    errors.push('河牌阶段需要先选择 5 张公共牌')
+  }
 
   deadCards.forEach((c, i) => {
     if (!c.trim()) return

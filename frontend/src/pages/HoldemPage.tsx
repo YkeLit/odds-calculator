@@ -18,7 +18,7 @@ import {
   toHoldemDecisionPayload,
   computePotState,
   getNextActor,
-  checkIsStreetClosed,
+  getStreetAdvanceStatus,
   getDynamicPositions,
   getValidActions
 } from './holdem-decision-utils'
@@ -49,7 +49,6 @@ export function HoldemPage({ token }: { token?: string }) {
   // Timeline (Actions)
   const [history, setHistory] = useState<ActionDraft[]>([])
   const [streetMessage, setStreetMessage] = useState('')
-  const [gameEnded, setGameEnded] = useState(false)
   const [result, setResult] = useState<HoldemDecisionResponse | null>(null)
   const [calcState, setCalcState] = useState<DecisionCalcState>({
     status: 'idle'
@@ -102,8 +101,8 @@ export function HoldemPage({ token }: { token?: string }) {
   }, [usedCards, picker.target, userCards, boardCards, deadCards])
 
   const validation = useMemo(() => 
-    validateHoldemDecision(userCards, boardCards, deadCards, opponents, toCall),
-  [userCards, boardCards, deadCards, opponents, toCall])
+    validateHoldemDecision(userCards, boardCards, deadCards, opponents, toCall, street),
+  [userCards, boardCards, deadCards, opponents, toCall, street])
 
   const viewModel = useMemo(() => buildDecisionViewModel({response: result}), [result])
 
@@ -131,49 +130,32 @@ export function HoldemPage({ token }: { token?: string }) {
     return () => clearTimeout(timer)
   }, [street])
 
-  // 2. 自动检测回合是否结束并跳转或提前结算
-  useEffect(() => {
-    if (history.length === 0 || gameEnded) return
-    
-    // 检查是否只剩下一个活着的玩家（其他人全 fold 了）
-    const folded = new Set<string>()
-    history.forEach(act => {
-      if (act.action === 'fold') folded.add(act.actor)
-    })
-    
-    const survivors = activePositions.filter(p => !folded.has(p.value))
-    
-    if (survivors.length === 1) {
-      // 只有一个生存者，提前自动结算
-      const winner = survivors[0].value
-      setStreetMessage(`玩家 ${winner} 通过对手弃牌将在 2 秒后获胜...`)
-      setTimeout(() => {
-        // 再次检查，确保状态没有变化
-        if (!gameEnded && history.length > 0) {
-          handleSettleHand(winner)
-        }
-      }, 1500)
+  // 2. 阶段推进状态（手动推进，不自动跳转）
+  const advanceStatus = useMemo(
+    () => getStreetAdvanceStatus(blinds, history, activePositions, street),
+    [blinds, history, activePositions, street]
+  )
+
+  const handleAdvanceStreet = () => {
+    if (!advanceStatus.canAdvance) return
+
+    // 全场弃牌 → 直接结算
+    if (advanceStatus.gameOver && advanceStatus.winner) {
+      handleSettleHand(advanceStatus.winner)
       return
     }
 
-    const isClosed = checkIsStreetClosed(blinds, history, activePositions, street)
-    if (isClosed) {
-      setStreetMessage('本轮下注已平齐，即将进入下一回合...')
-      // 增加一点延迟，让用户看清最后一个动作
-      const closedStreet = street
-      setTimeout(() => {
-        setHistory(prev => {
-          // 再次检查确认在延迟期间没有发生变化
-          if (!checkIsStreetClosed(blinds, prev, activePositions, closedStreet)) return prev
-          
-          if (closedStreet === 'preflop') setStreet('flop')
-          else if (closedStreet === 'flop') setStreet('turn')
-          else if (closedStreet === 'turn') setStreet('river')
-          return prev
-        })
-      }, 1000)
+    // 河牌圈结束且是 gameOver → 需要用户在"局末结算"区域选择赢家
+    if (advanceStatus.gameOver && !advanceStatus.winner) {
+      setStreetMessage('请在"局末结算"区域选择本局赢家')
+      return
     }
-  }, [history, blinds, activePositions, street, gameEnded])
+
+    // 正常推进到下一阶段
+    if (advanceStatus.nextStreet) {
+      setStreet(advanceStatus.nextStreet)
+    }
+  }
 
   const runDecision = async () => {
     if (!validation.canRequest) {
@@ -233,6 +215,42 @@ export function HoldemPage({ token }: { token?: string }) {
   }
 
   // Quick Action Helpers
+  const handleUserPositionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newPos = e.target.value
+    // 如果这个位置已经被某个对手占用，互换他们的位置
+    const conflictIdx = opponents.findIndex(o => o.position === newPos)
+    if (conflictIdx !== -1) {
+      setOpponents(prev => prev.map((o, i) => i === conflictIdx ? { ...o, position: userPosition, id: userPosition } : o))
+    }
+    setUserPosition(newPos)
+  }
+
+  const handleOpponentPositionChange = (idx: number, e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newPos = e.target.value
+    const oldPos = opponents[idx].position
+
+    // 如果和 user 冲突，交换
+    if (newPos === userPosition) {
+      setUserPosition(oldPos)
+      setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, position: newPos, id: newPos } : o))
+      return
+    }
+
+    // 如果和其他 opponent 冲突，交换
+    const conflictIdx = opponents.findIndex((o, i) => i !== idx && o.position === newPos)
+    if (conflictIdx !== -1) {
+      setOpponents(prev => prev.map((o, i) => {
+        if (i === idx) return { ...o, position: newPos, id: newPos }
+        if (i === conflictIdx) return { ...o, position: oldPos, id: oldPos }
+        return o
+      }))
+      return
+    }
+
+    // 正常更新
+    setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, position: newPos, id: newPos } : o))
+  }
+
   const addOpponent = () => {
     setOpponents(prev => {
       if (prev.length >= 5) return prev // 最多 6 人桌面（1 用户 + 5 对手）
@@ -258,13 +276,15 @@ export function HoldemPage({ token }: { token?: string }) {
     setOpponents(prev => prev.filter((_, i) => i !== idx))
   }
 
+  const getPreferredAction = (validActions: string[]): ActionDraft['action'] => {
+    if (validActions.includes('call')) return 'call'
+    if (validActions.includes('check')) return 'check'
+    return validActions[0] as ActionDraft['action']
+  }
+
   const addAction = () => {
     const nextActor = getNextActor(history, street, activePositions)
-    
-    // 根据当前底池状态选择合理的默认动作：
-    // 有人下注则默认 fold（保守安全），否则默认 check（继续游戏）
-    // 用户可通过下拉菜单改为其他合法动作
-    const defaultAction = toCall > 0 ? 'fold' : 'check'
+    const defaultAction = getPreferredAction(getValidActions(blinds, history, nextActor, opponents))
     
     setHistory(prev => [...prev, {
       id: Date.now().toString(),
@@ -292,9 +312,6 @@ export function HoldemPage({ token }: { token?: string }) {
   }
 
   const handleSettleHand = (winnerPos: string) => {
-    // 标记游戏已结束
-    setGameEnded(true)
-    
     // 赢家拿走全部 potSize
     const newUserStack = userRemainingStack + (winnerPos === userPosition ? potSize : 0)
     setUserStack(newUserStack)
@@ -318,8 +335,7 @@ export function HoldemPage({ token }: { token?: string }) {
       setStreet('preflop')
       setResult(null)
       setCalcState({ status: 'idle' })
-      setGameEnded(false)
-      setStreetMessage('新手开始...')
+      setStreetMessage('新的开始...')
       setTimeout(() => setStreetMessage(''), 2000)
     }, 3000)
   }
@@ -368,12 +384,13 @@ export function HoldemPage({ token }: { token?: string }) {
               {validation.errors.length > 0 && <p className="error-mini">{validation.errors[0]}</p>}
           </div>
           
-          <div className="input-block">
+          <div className="input-grid">
+            <div className="input-block">
             <h3>用户视角</h3>
             <div className="hero-setup-grid">
               <label>
                 位置
-                <select value={userPosition} onChange={e => setUserPosition(e.target.value)}>
+                <select value={userPosition} onChange={handleUserPositionChange}>
                   {dynamicPositions.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
@@ -442,88 +459,90 @@ export function HoldemPage({ token }: { token?: string }) {
             </div>
           </div>
 
-          <div className="input-block">
-             <h3>公共牌</h3>
-             <div className="community-slots">
-                {boardCards.map((card, index) => {
-                  if (street === 'preflop') return null;
-                  if (street === 'flop' && index > 2) return null;
-                  if (street === 'turn' && index > 3) return null;
+          {street !== 'preflop' && (
+            <div className="input-block full-width">
+               <h3>公共牌</h3>
+               <div className="community-slots">
+                  {boardCards.map((card, index) => {
+                    if (street === 'flop' && index > 2) return null;
+                    if (street === 'turn' && index > 3) return null;
 
-                  return (
-                    <div key={index} className="community-slot">
-                      <button
-                        type="button"
-                        className={`card-slot ${card ? 'filled' : ''}`}
-                        onClick={(e) => openPicker(e, { kind: 'board', slot: index })}
-                      >
-                        {card ? formatCardDisplay(card) : `牌 ${index + 1}`}
-                      </button>
-                      {card && (
-                        <button type="button" className="ghost-btn" onClick={() => setBoardCards(prev => prev.map((c, i) => i === index ? '' : c))}>清空</button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-          </div>
-
-          <div className="input-block">
-            <div className="holdem-input-top">
-              <h3>对手设置</h3>
-              <button className="ghost-btn" onClick={addOpponent}>+ 添加对手</button>
+                    return (
+                      <div key={index} className="community-slot">
+                        <button
+                          type="button"
+                          className={`card-slot ${card ? 'filled' : ''}`}
+                          onClick={(e) => openPicker(e, { kind: 'board', slot: index })}
+                        >
+                          {card ? formatCardDisplay(card) : `牌 ${index + 1}`}
+                        </button>
+                        {card && (
+                          <button type="button" className="ghost-btn" onClick={() => setBoardCards(prev => prev.map((c, i) => i === index ? '' : c))}>清空</button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
             </div>
-            {opponents.map((opp, idx) => (
-              <div key={idx} className="opponent-row">
-                <select value={opp.position} onChange={e => {
-                    const val = e.target.value
-                    setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, position: val, id: val } : o))
-                }}>
-                  {dynamicPositions.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+          )}
 
-                <select value={opp.stylePreset} onChange={e => {
-                    const val = e.target.value as any
-                    setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, stylePreset: val } : o))
-                }} style={{ width: '100px' }}>
-                  <option value="tight">紧</option>
-                  <option value="balanced">平</option>
-                  <option value="loose">松</option>
-                  <option value="maniac">疯</option>
-                </select>
-                
-                <input type="number" 
-                  value={opp.stack || 0} 
-                  onChange={e => {
-                    const val = Number(e.target.value)
-                    setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, stack: val } : o))
-                  }} 
-                  placeholder="筹码"
-                  style={{ width: '80px' }}
-                  title="初始筹码"
-                />
-                <input
-                  type="number"
-                  value={Math.max(0, (opp.stack || 0) - (invested[opp.position] ?? 0))}
-                  readOnly
-                  className="readonly-input"
-                  style={{ width: '72px', color: 'var(--brand)', fontWeight: 'bold' }}
-                  title="剩余筹码（自动计算）"
-                />
-
-                <input value={opp.rangeOverride} onChange={e => {
-                  const val = e.target.value
-                  setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, rangeOverride: val } : o))
-                }} placeholder="范围" style={{ flex: 1 }} />
-                
-                <button className="ghost-btn" onClick={() => removeOpponent(idx)}>×</button>
+          <details className="input-block full-width">
+            <summary className="holdem-input-top" style={{ cursor: 'pointer', marginBottom: 0 }}>
+              <h3 style={{ borderBottom: 'none', margin: 0, paddingBottom: 0 }}>对手设置 <span className="hint-secondary" style={{ fontStyle: 'normal' }}>({opponents.length}人)</span></h3>
+            </summary>
+            
+            <div style={{ marginTop: '12px' }}>
+              <div className="holdem-input-top" style={{ justifyContent: 'flex-end', marginBottom: '8px' }}>
+                <button className="ghost-btn" onClick={addOpponent}>+ 添加对手</button>
               </div>
-            ))}
-          </div>
+              {opponents.map((opp, idx) => (
+                <div key={idx} className="opponent-row">
+                  <select value={opp.position} onChange={e => handleOpponentPositionChange(idx, e)} className="flex-1">
+                    {dynamicPositions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
 
-          <div className="input-block">
+                  <select value={opp.stylePreset} onChange={e => {
+                      const val = e.target.value as any
+                      setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, stylePreset: val } : o))
+                  }} className="flex-1">
+                    <option value="tight">紧</option>
+                    <option value="balanced">平</option>
+                    <option value="loose">松</option>
+                    <option value="maniac">疯</option>
+                  </select>
+                  
+                  <input type="number" 
+                    value={opp.stack || 0} 
+                    onChange={e => {
+                      const val = Number(e.target.value)
+                      setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, stack: val } : o))
+                    }} 
+                    placeholder="筹码"
+                    className="flex-1"
+                    title="初始筹码"
+                  />
+                  <input
+                    type="number"
+                    value={Math.max(0, (opp.stack || 0) - (invested[opp.position] ?? 0))}
+                    readOnly
+                    className="readonly-input flex-1"
+                    title="剩余筹码（自动计算）"
+                  />
+
+                  <input value={opp.rangeOverride} onChange={e => {
+                    const val = e.target.value
+                    setOpponents(prev => prev.map((o, i) => i === idx ? { ...o, rangeOverride: val } : o))
+                  }} placeholder="范围" style={{ flex: 1.5, minWidth: '80px' }} />
+                  
+                  <button className="ghost-btn action-del-btn" onClick={() => removeOpponent(idx)}>×</button>
+                </div>
+              ))}
+            </div>
+          </details>
+
+          <div className="input-block full-width">
             <div className="holdem-input-top">
               <h3>动作历史 ({street === 'preflop' ? '翻前' : street === 'flop' ? '翻牌' : street === 'turn' ? '转牌' : '河牌'})</h3>
               <button className="ghost-btn" onClick={addAction}>+ 添加本轮动作</button>
@@ -534,36 +553,38 @@ export function HoldemPage({ token }: { token?: string }) {
               const priorHistory = history.slice(0, act.originalIdx)
               const validActions = getValidActions(blinds, priorHistory, act.actor, opponents)
 
-              // 动作标签映射
-              const ACTION_LABELS: Record<string, string> = {
-                fold: '弃牌 (Fold)',
-                check: '过牌 (Check)',
-                call: '跟注 (Call)',
-                bet: '下注 (Bet)',
-                raise: '加注 (Raise)',
-                allin: '全下 (All-In)',
+              const currentAction = validActions.includes(act.action) ? act.action : getPreferredAction(validActions)
+
+              const ACTION_SHORT: Record<string, string> = {
+                fold: '弃牌', check: '过牌', call: '跟注', bet: '下注', raise: '加注', allin: '全下',
+              }
+
+              const setAction = (val: string) => {
+                setHistory(prev => prev.map((h, i) => {
+                  if (i !== act.originalIdx) return h
+                  let newAmount = h.amount
+                  if (val === 'allin') {
+                    const actorStack = h.actor === userPosition
+                      ? userStack
+                      : (opponents.find(o => o.position === h.actor)?.stack || 0)
+                    newAmount = actorStack.toString()
+                  } else if ((val === 'raise' || val === 'bet') && (h.amount === '0' || h.amount === '')) {
+                    newAmount = minRaiseTo.toString()
+                  }
+                  return { ...h, action: val as any, amount: newAmount }
+                }))
               }
 
               return (
               <div key={act.id} className="action-row">
-                <select value={act.street} onChange={e => {
-                    const val = e.target.value as Street
-                    setHistory(prev => prev.map((h, i) => i === act.originalIdx ? { ...h, street: val } : h))
-                }}>
-                  <option value="preflop">翻前 (PF)</option>
-                  <option value="flop">翻牌 (FL)</option>
-                  <option value="turn">转牌 (TN)</option>
-                  <option value="river">河牌 (RV)</option>
-                </select>
-                
                 <select value={act.actor} onChange={e => {
                   const val = e.target.value
                   setHistory(prev => prev.map((h, i) => {
                     if (i === act.originalIdx) {
                       let newAmount = h.amount
                       if (h.action === 'allin') {
-                        const actorStack = val === userPosition 
-                          ? userStack 
+                        const actorStack = val === userPosition
+                          ? userStack
                           : (opponents.find(o => o.position === val)?.stack || 0)
                         newAmount = actorStack.toString()
                       }
@@ -571,56 +592,60 @@ export function HoldemPage({ token }: { token?: string }) {
                     }
                     return h
                   }))
-                }} style={{ width: '130px' }}>
+                }} className="actor-select">
                   {activePositions.map(pos => (
                      <option key={pos.value} value={pos.value}>{pos.label}</option>
                   ))}
                 </select>
 
-                <select
-                  value={validActions.includes(act.action) ? act.action : validActions[0]}
-                  onChange={e => {
-                    const val = e.target.value as any
-                    setHistory(prev => prev.map((h, i) => {
-                      if (i === act.originalIdx) {
-                        let newAmount = h.amount
-                        if (val === 'allin') {
-                          const actorStack = h.actor === userPosition 
-                            ? userStack 
-                            : (opponents.find(o => o.position === h.actor)?.stack || 0)
-                          newAmount = actorStack.toString()
-                        } else if ((val === 'raise' || val === 'bet') && (h.amount === '0' || h.amount === '')) {
-                          newAmount = minRaiseTo.toString()
-                        }
-                        return { ...h, action: val, amount: newAmount }
-                      }
-                      return h
-                    }))
-                  }}
-                >
+                <div className="action-btn-group">
                   {validActions.map(a => (
-                    <option key={a} value={a}>{ACTION_LABELS[a]}</option>
+                    <button
+                      key={a}
+                      type="button"
+                      className={`action-btn ${currentAction === a ? 'active' : ''}`}
+                      onClick={() => setAction(a)}
+                    >
+                      {ACTION_SHORT[a] ?? a}
+                    </button>
                   ))}
-                </select>
+                </div>
 
-                {/* 仅在需要设置金额的动作下显示输入框 */}
-                {!['fold', 'check', 'call'].includes(act.action) && (
+                {!['fold', 'check', 'call'].includes(currentAction) && (
                   <input type="number" value={act.amount} onChange={e => {
                     const val = e.target.value
                     setHistory(prev => prev.map((h, i) => i === act.originalIdx ? { ...h, amount: val } : h))
-                  }} placeholder="金额" style={{ width: '80px' }} />
+                  }} placeholder="金额" style={{ width: '72px' }} />
                 )}
-                
-                <button className="ghost-btn" onClick={() => removeAction(act.originalIdx)}>×</button>
+
+                <button className="ghost-btn action-del-btn" onClick={() => removeAction(act.originalIdx)}>×</button>
               </div>
               )
             })}
             {history.length > filteredHistory.length && (
               <p className="hint-secondary">其他轮次动作已隐藏，切换阶段即可查看</p>
             )}
+
+            {/* 阶段推进控制 */}
+            <div className="street-advance-bar">
+              <span className={`advance-status ${advanceStatus.canAdvance ? 'ready' : 'waiting'}`}>
+                {advanceStatus.reason}
+              </span>
+              {advanceStatus.canAdvance && (
+                <button
+                  type="button"
+                  className="ghost-btn primary"
+                  onClick={handleAdvanceStreet}
+                >
+                  {advanceStatus.gameOver
+                    ? (advanceStatus.winner ? `${advanceStatus.winner} 获胜 结算` : '进入摊牌')
+                    : `进入${advanceStatus.nextStreet === 'flop' ? '翻牌' : advanceStatus.nextStreet === 'turn' ? '转牌' : '河牌'} ▸`}
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="input-block settlement-block">
+          <div className="input-block full-width settlement-block">
             <div className="holdem-input-top">
               <h3>局末结算</h3>
               <p className="hint">选择本局赢家，将自动更新各玩家筹码余额并开启下一手</p>
@@ -637,6 +662,7 @@ export function HoldemPage({ token }: { token?: string }) {
                ))}
                {livePositions.length === 0 && <p className="hint-secondary">暂无活跃玩家，请先添加动作</p>}
             </div>
+          </div>
           </div>
 
           {picker.open && picker.target && (

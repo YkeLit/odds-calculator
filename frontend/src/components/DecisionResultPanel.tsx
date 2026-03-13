@@ -10,33 +10,27 @@ interface DecisionResultPanelProps {
 export function DecisionResultPanel({ viewModel, status, error, onApplyAction }: DecisionResultPanelProps) {
   if (status === 'error') {
     return (
-      <div className="holdem-result-panel">
-        <div className="error-card">
-          <h3>计算失败</h3>
-          <p>{error}</p>
-        </div>
+      <div className="error-card">
+        <h3>计算失败</h3>
+        <p>{error}</p>
       </div>
     )
   }
 
   if (status === 'loading') {
     return (
-      <div className="holdem-result-panel">
-        <p className="loading-state">求解器正在采样计算中，请稍候...</p>
-      </div>
+      <p className="loading-state">求解器正在采样计算中，请稍候...</p>
     )
   }
 
   if (!viewModel || status === 'idle') {
     return (
-      <div className="holdem-result-panel">
-        <p className="hint">等待输入信号以启动决策引擎</p>
-      </div>
+      <p className="hint">等待输入信号以启动决策引擎</p>
     )
   }
 
   return (
-    <div className="holdem-result-panel">
+    <>
       <div className="summary-grid">
         <article className="summary-card">
           <p>胜率 Equity</p>
@@ -71,19 +65,23 @@ export function DecisionResultPanel({ viewModel, status, error, onApplyAction }:
                 style={onApplyAction ? { cursor: 'pointer' } : undefined}
                 title="点击即可将此动作应用到历史记录"
               >
-                <h4>{act.action === 'FOLD' ? '弃牌 (Fold)' : act.action === 'CALL' ? '跟注 (Call)' : act.action === 'CHECK' ? '过牌 (Check)' : act.action === 'RAISE' ? '加注 (Raise)' : act.action === 'ALLIN' ? '全下 (All-In)' : act.action}</h4>
-                <div className="action-amt">{act.amountInfo}</div>
-                <div className="action-freq">
-                  <span>策略频率:</span> <strong>{act.freqText}</strong>
+                <div className="action-card-header">
+                  <h4>{act.action === 'FOLD' ? '弃牌 (Fold)' : act.action === 'CALL' ? '跟注 (Call)' : act.action === 'CHECK' ? '过牌 (Check)' : act.action === 'RAISE' ? '加注 (Raise)' : act.action === 'ALLIN' ? '全下 (All-In)' : act.action}</h4>
+                  <span className="action-amt-badge">{act.amountInfo}</span>
                 </div>
-                <div className="action-ev">
-                  <span>节点 EV:</span> <strong>{act.evText}</strong>
-                </div>
-                <div className="action-ci">
-                  <span>95% CI:</span> {act.ciText}
-                </div>
-                <div className="action-regret">
-                  <span>累积后悔值:</span> {act.regretText}
+                <div className="action-card-stats">
+                  <div className="stat-item">
+                    <span>策略频率:</span> <strong>{act.freqText}</strong>
+                  </div>
+                  <div className="stat-item">
+                    <span>节点 EV:</span> <strong className={act.evText.startsWith('-') ? 'ev-negative' : 'ev-positive'}>{act.evText}</strong>
+                  </div>
+                  <div className="stat-item">
+                    <span>95% CI:</span> <strong>{act.ciText}</strong>
+                  </div>
+                  <div className="stat-item" title="Counterfactual Regret">
+                    <span>累积后悔值:</span> <strong>{act.regretText}</strong>
+                  </div>
                 </div>
               </div>
             ))}
@@ -120,6 +118,6 @@ export function DecisionResultPanel({ viewModel, status, error, onApplyAction }:
       <div className="tree-stats hint" style={{ marginTop: '1rem', textAlign: 'right' }}>
         求解树状态: {viewModel.treeStats}
       </div>
-    </div>
+    </>
   )
 }

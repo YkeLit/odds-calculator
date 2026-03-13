@@ -8,6 +8,7 @@ services:
       - PORT=8080
       - DB_PATH=/app/data/odds.db
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
+      - MCCFR_CACHE_PATH=/app/data/mccfr_cache.bin
     volumes:
       - backend-data:/app/data
     restart: unless-stopped

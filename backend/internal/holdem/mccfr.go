@@ -1,8 +1,11 @@
 package holdem
 
 import (
+	"encoding/gob"
 	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"odds-calculator/backend/internal/models"
@@ -38,8 +41,39 @@ type InfoSetData struct {
 	ActionCount        int
 }
 
+func ensureInfoSetActionCount(d *InfoSetData, actionCount int) {
+	if d == nil {
+		return
+	}
+	target := actionCount
+	if len(d.CumulativeRegret) > target {
+		target = len(d.CumulativeRegret)
+	}
+	if len(d.CumulativeStrategy) > target {
+		target = len(d.CumulativeStrategy)
+	}
+	if d.ActionCount > target {
+		target = d.ActionCount
+	}
+	if target < 0 {
+		target = 0
+	}
+	if len(d.CumulativeRegret) < target {
+		d.CumulativeRegret = append(d.CumulativeRegret, make([]float64, target-len(d.CumulativeRegret))...)
+	}
+	if len(d.CumulativeStrategy) < target {
+		d.CumulativeStrategy = append(d.CumulativeStrategy, make([]float64, target-len(d.CumulativeStrategy))...)
+	}
+	d.ActionCount = target
+	if d.ActionCount == 0 {
+		d.CumulativeRegret = nil
+		d.CumulativeStrategy = nil
+	}
+}
+
 // GetStrategy returns the current iteration strategy via regret-matching.
 func (d *InfoSetData) GetStrategy() []float64 {
+	ensureInfoSetActionCount(d, d.ActionCount)
 	strat := make([]float64, d.ActionCount)
 	posSum := 0.0
 	for i := 0; i < d.ActionCount; i++ {
@@ -64,6 +98,7 @@ func (d *InfoSetData) GetStrategy() []float64 {
 
 // GetAverageStrategy returns the converged (average) strategy.
 func (d *InfoSetData) GetAverageStrategy() []float64 {
+	ensureInfoSetActionCount(d, d.ActionCount)
 	strat := make([]float64, d.ActionCount)
 	sum := 0.0
 	for _, v := range d.CumulativeStrategy {
@@ -99,11 +134,15 @@ func (m *InfoSetMap) GetOrCreate(key InfoSetKey, actionCount int) *InfoSetData {
 	d, ok := m.data[key]
 	m.mu.RUnlock()
 	if ok {
+		m.mu.Lock()
+		ensureInfoSetActionCount(d, actionCount)
+		m.mu.Unlock()
 		return d
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok = m.data[key]; ok {
+		ensureInfoSetActionCount(d, actionCount)
 		return d
 	}
 	d = &InfoSetData{
@@ -130,7 +169,10 @@ func (m *InfoSetMap) Merge(src *InfoSetMap) {
 	defer m.mu.Unlock()
 	for key, sd := range src.data {
 		if md, ok := m.data[key]; ok {
-			for i := 0; i < sd.ActionCount; i++ {
+			ensureInfoSetActionCount(md, sd.ActionCount)
+			ensureInfoSetActionCount(sd, sd.ActionCount)
+			n := sd.ActionCount
+			for i := 0; i < n; i++ {
 				md.CumulativeRegret[i] += sd.CumulativeRegret[i]
 				md.CumulativeStrategy[i] += sd.CumulativeStrategy[i]
 			}
@@ -140,6 +182,7 @@ func (m *InfoSetMap) Merge(src *InfoSetMap) {
 				CumulativeStrategy: append([]float64(nil), sd.CumulativeStrategy...),
 				ActionCount:        sd.ActionCount,
 			}
+			ensureInfoSetActionCount(clone, sd.ActionCount)
 			m.data[key] = clone
 		}
 	}
@@ -152,6 +195,67 @@ const maxGlobalCacheSize = 200_000
 
 var globalCache = NewInfoSetMap()
 var globalCacheMu sync.Mutex
+
+// SaveCacheToFile serializes globalCache to a gob file atomically (write to .tmp then rename).
+// Safe to call concurrently; takes a snapshot under the lock then writes without blocking.
+func SaveCacheToFile(path string) error {
+	globalCacheMu.Lock()
+	globalCache.mu.RLock()
+	snapshot := make(map[string]InfoSetData, len(globalCache.data))
+	for k, v := range globalCache.data {
+		snapshot[string(k)] = *v
+	}
+	globalCache.mu.RUnlock()
+	globalCacheMu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if err := gob.NewEncoder(f).Encode(snapshot); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// LoadCacheFromFile deserializes a previously saved cache into globalCache.
+// Returns nil (no-op) if the file does not exist.
+func LoadCacheFromFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer f.Close()
+
+	var snapshot map[string]InfoSetData
+	if err := gob.NewDecoder(f).Decode(&snapshot); err != nil {
+		return err
+	}
+
+	loaded := NewInfoSetMap()
+	for k, v := range snapshot {
+		clone := v
+		loaded.data[InfoSetKey(k)] = &clone
+	}
+
+	globalCacheMu.Lock()
+	globalCache = loaded
+	globalCacheMu.Unlock()
+	return nil
+}
 
 // ──── Game-tree node ────
 

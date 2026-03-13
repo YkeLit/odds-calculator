@@ -126,6 +126,63 @@ func TestCalculateDecision_DeadHand(t *testing.T) {
 	}
 }
 
+func TestCalculateDecision_RejectsIncompleteBoardForStreet(t *testing.T) {
+	req := models.HoldemDecisionRequest{
+		Hero: models.HeroState{
+			HoleCards: []string{"As", "Ks"},
+			Position:  "BTN",
+			Stack:     100,
+		},
+		Street:     models.StreetTurn,
+		BoardCards: []string{"Qs", "Js", "2d"},
+		Opponents: []models.OpponentInfo{
+			{ID: "BB", Position: "BB", RangeOverride: ""},
+		},
+		PotState: models.PotState{
+			ToCall:     10,
+			PotSize:    20,
+			MinRaiseTo: 20,
+			Blinds:     [2]float64{1, 2},
+		},
+		SolverConfig: models.SolverConfig{
+			BranchCount:   3,
+			TimeoutMs:     1000,
+			RolloutBudget: 100,
+		},
+	}
+
+	_, err := CalculateDecision(req)
+	if err == nil {
+		t.Fatal("expected error for incomplete turn board")
+	}
+	if got := err.Error(); got != "street turn requires at least 4 board cards, got 3" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInfoSetMap_GetOrCreateExpandsExistingData(t *testing.T) {
+	m := NewInfoSetMap()
+	key := InfoSetKey("hero|board|history")
+
+	d1 := m.GetOrCreate(key, 3)
+	d1.CumulativeRegret[0] = 1
+	d1.CumulativeStrategy[2] = 2
+
+	d2 := m.GetOrCreate(key, 4)
+	if d2.ActionCount != 4 {
+		t.Fatalf("expected action count 4, got %d", d2.ActionCount)
+	}
+	if len(d2.CumulativeRegret) != 4 || len(d2.CumulativeStrategy) != 4 {
+		t.Fatalf("expected slices resized to 4, got regret=%d strategy=%d", len(d2.CumulativeRegret), len(d2.CumulativeStrategy))
+	}
+	if d2.CumulativeRegret[0] != 1 || d2.CumulativeStrategy[2] != 2 {
+		t.Fatal("expected existing infoset data to be preserved after resize")
+	}
+	if d2.CumulativeRegret[3] != 0 || d2.CumulativeStrategy[3] != 0 {
+		t.Fatal("expected new action slot to be zero-initialized")
+	}
+}
+
 func TestMCCFR_BasicConvergence(t *testing.T) {
 	// Test that MCCFR converges to a reasonable strategy
 	// Hero has AA on a dry flop - should strongly favor value betting
