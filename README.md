@@ -1,12 +1,14 @@
-# 赔率计算器 MVP
+# 赔率计算器
 
 前后端分离实现，支持：
 
 - 德州扑克：精确枚举胜率（`/holdem/odds`）
 - 德州扑克全下 EV：主池/多级边池 + 可选抽水（`/holdem/allin-ev`）
+- 德州扑克智能决策：基于 ES-CFR+ 算法的策略优化（`/holdem/decision`）
 - 四川麻将（血战到底 + 缺一门）：听牌/胡牌概率 + 两摸番数期望出牌建议（`/mahjong/analyze`）
-- 简单登录（用户名密码 + JWT）
+- 用户认证（用户名密码 + JWT）
 - 历史记录（按用户持久化到 SQLite）
+- Docker 部署支持
 
 ## 项目结构
 
@@ -30,6 +32,7 @@ go run ./cmd/server
 - `PORT` (默认 `8080`)
 - `DB_PATH` (默认 `./odds.db`)
 - `JWT_SECRET` (默认 `dev-secret-change-me`)
+- `MCCFR_CACHE_PATH` (默认 `./mccfr_cache.bin`) - MCCFR 策略缓存文件路径
 
 ### 2) 启动前端
 
@@ -46,6 +49,14 @@ npm run dev
 ```bash
 VITE_API_BASE_URL=http://your-host:port npm run dev
 ```
+
+### 3) Docker 部署
+
+```bash
+docker-compose up -d
+```
+
+默认前端访问 `http://localhost:3000`，后端 `http://localhost:8080`。
 
 ## 输入格式说明
 
@@ -75,6 +86,7 @@ p3 Qc Qd 25 true
 - `POST /api/v1/auth/login`
 - `POST /api/v1/holdem/odds`
 - `POST /api/v1/holdem/allin-ev`
+- `POST /api/v1/holdem/decision`
 - `POST /api/v1/mahjong/analyze`
 - `GET /api/v1/history?page=1&pageSize=20&gameType=`
 
