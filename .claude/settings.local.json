@@ -2,5 +2,10 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)"
+    ]
   }
 }
