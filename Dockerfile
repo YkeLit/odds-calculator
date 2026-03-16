@@ -35,4 +35,4 @@ ENV DB_PATH=/app/data/odds.db
 
 EXPOSE 8080
 
-CMD ["/server"]
+CMD ["./server"]
