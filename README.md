@@ -50,8 +50,13 @@ npm run dev
 VITE_API_BASE_URL=http://your-host:port npm run dev
 ```
 
-Docker / Nginx 部署下，前端镜像也支持在容器启动时通过 `VITE_API_BASE_URL`
-覆盖接口地址；如果未设置，则默认走同源 `/api/...`，由 Nginx 反代到后端。
+Docker / Nginx 部署下，前端镜像支持两类运行时配置：
+
+- `VITE_API_BASE_URL`: 浏览器里实际请求的接口前缀；未设置时默认走同源 `/api/...`
+- `API_PROXY_PASS`: Nginx 反代上游地址；默认 `http://backend:8080`
+
+如果你通过同域名暴露前端，通常只需要配置 `API_PROXY_PASS`，让浏览器请求
+`/api/...`，再由 Nginx 转发到后端容器。
 
 ### 3) Docker 部署
 

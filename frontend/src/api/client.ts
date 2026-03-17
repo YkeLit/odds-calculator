@@ -11,9 +11,11 @@ import type {
   MahjongAnalyzeResponse
 } from '../types/api'
 
-const runtimeApiBase = window.__APP_CONFIG__?.VITE_API_BASE_URL?.trim()
-const buildTimeApiBase = import.meta.env.VITE_API_BASE_URL?.trim()
-const API_BASE = runtimeApiBase || buildTimeApiBase || ''
+function getApiBase(): string {
+  const runtimeApiBase = window.__APP_CONFIG__?.VITE_API_BASE_URL?.trim()
+  const buildTimeApiBase = import.meta.env.VITE_API_BASE_URL?.trim()
+  return runtimeApiBase || buildTimeApiBase || ''
+}
 
 async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
   const headers = new Headers(init.headers)
@@ -24,7 +26,7 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string):
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${getApiBase()}${path}`, {
     ...init,
     headers
   })
