@@ -50,6 +50,9 @@ npm run dev
 VITE_API_BASE_URL=http://your-host:port npm run dev
 ```
 
+Docker / Nginx 部署下，前端镜像也支持在容器启动时通过 `VITE_API_BASE_URL`
+覆盖接口地址；如果未设置，则默认走同源 `/api/...`，由 Nginx 反代到后端。
+
 ### 3) Docker 部署
 
 ```bash

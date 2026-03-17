@@ -23,6 +23,9 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy nginx config
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/docker-entrypoint.sh /docker-entrypoint.d/99-runtime-config.sh
+
+RUN chmod +x /docker-entrypoint.d/99-runtime-config.sh
 
 EXPOSE 80
 
