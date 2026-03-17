@@ -21,8 +21,8 @@ FROM alpine:3.19
 
 WORKDIR /app
 
-# Install certificates for HTTPS
-RUN apk add --no-cache ca-certificates
+# Install certificates for HTTPS and sqlite3 CLI
+RUN apk add --no-cache ca-certificates sqlite
 
 # Copy binary from builder
 COPY --from=builder /server .
